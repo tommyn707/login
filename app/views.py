@@ -1,79 +1,83 @@
-from django.shortcuts import render, redirect
+from django.shortcuts  import render, HttpResponse, redirect
 from django.contrib import messages
-from .models import *
-import bcrypt
 import re
-EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9.+_-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]+$')
+import bcrypt
+from . models import *
 
+NAME_REGEX = re.compile(r'^[^0-9]+$')
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9.+_-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]+$')
 
 def index(request):
     return render(request, 'index.html')
 
 def register(request):
-    # print(request.POST)
     error = False
-    if len(request.POST['first_name']) < 2:
+    if len(request.POST['email'])==0:
         error = True
-        messages.error(request, "First name must be a minimum length of three characters!")
-
-    if request.POST['first_name'].isalpha() == False:
+        messages.error(request,'Invalid Email Credentials', extra_tags= 'email')
+    if len(User.objects.filter(email = request.POST['email'])) > 0:
         error = True
-        messages.error(request, "First name cannot have a number in it or be blank!")
-
-    if len(request.POST['last_name']) < 2:
+        messages.error(request,'Invalid Email Credentials', extra_tags= 'email')
+    if not EMAIL_REGEX.match(request.POST['email']): 
         error = True
-        messages.error(request, "Last name must be a minimum length of three characters!")
-
-    if request.POST['last_name'].isalpha() == False:
+        messages.error(request,'Invalid Email Credentials', extra_tags= 'email')
+    if len(request.POST['first_name']) < 2 or len(request.POST['last_name']) < 2:
         error = True
-        messages.error(request, "Last name cannot have a number in it or be blank!")
-
-    if len(request.POST['email']) < 7:
+        messages.error(request,'Invalid Credentials', extra_tags= 'name')
+    if not NAME_REGEX.match(request.POST['first_name']):
         error = True
-        messages.error(request, "Last name must be a minimum length of three characters!")
-    
-    if not EMAIL_REGEX.match(request.POST['email']):
+        messages.error(request,'Invalid Credentials', extra_tags= 'name')
+    if not NAME_REGEX.match(request.POST['last_name']):
         error = True
-        messages.error(request, "Email must be a valid email address!")
-
+        messages.error(request,'Invalid Credentials', extra_tags= 'name')
     if len(request.POST['password']) < 8:
         error = True
-        messages.error(request, "Password must be a minimum length of eight characters!")
-
-    if request.POST['password'] != request.POST['confirm_password']:
+        messages.error(request,'Invalid Password Length', extra_tags= 'password')
+    if request.POST['password'] != request.POST['confirm_pw']:
         error = True
-        messages.error(request, "Passwords must match!")
-
-    if User.objects.filter(email=request.POST['email']):
-        error = True
-        messages.error(request, "User already exists!")
-
+        messages.error(request,'Invalid Password Submission', extra_tags= 'password')
     if error:
         return redirect('/')
-
+    
     hashed = bcrypt.hashpw(request.POST['password'].encode(), bcrypt.gensalt())
     decoded_hash = hashed.decode('utf-8')
-
-    user = User.objects.create(first_name=request.POST['first_name'], last_name=request.POST['last_name'], email=request.POST['email'], password=decoded_hash)
-    print(user)
-    request.session['u_id'] = user.id
-    return redirect('/success')
+    user = User.objects.create(first_name = request.POST['first_name'], last_name = request.POST['last_name'], email = request.POST['email'], password = decoded_hash )
+    request.session['id'] = user.id
+    return redirect ('/wall')
 
 def login(request):
-    user_list = User.objects.filter(email=request.POST['email'])
-    if not user_list:
-        messages.error(request, "Invalid credentials!")
+    user = User.objects.filter(email = request.POST['email'])
+    if not user:
+        messages.error(request, 'Invalid Credentials', extra_tags = 'login')
         return redirect('/')
-   
-    user = user_list[0]
-   
+    user = user[0]
     if bcrypt.checkpw(request.POST['password'].encode(), user.password.encode()):
-        request.session['u_id'] = user.id
-        request.session['u_fname'] = user.first_name
-        return redirect('/success')
+        request.session['id'] = user.id
+        return redirect ('/wall')
     else:
-        messages.error(request, "Invalid credentials!")
-        return redirect('/')
+        messages.error(request, 'Invalid Credentials', extra_tags='login')
+    return redirect('/')
 
-def success(request):
-    return render(request, 'success.html')
+def wall(request):
+    if "id" not in request.session:
+        return redirect('/')
+    data = {
+            'users': User.objects.all(),
+            'user':User.objects.get(id = request.session['id'])
+        }
+    return render(request, 'wall.html', data)
+
+def post_message(request):
+    user = User.objects.get(id = request.session['id'])
+    message = Message.objects.create(message = request.POST['message'], user_id = user)
+    request.session['message'] = request.POST['message']
+    return redirect('/wall')
+
+def post_comment(request):
+    user = User.objects.get(id = request.session['id'])
+    comment = Comment.objects.create(comment = request.POST['comment'], message_id = Message.objects.get(id=request.POST['message_id']) , user_id = user)
+    return redirect('/wall')
+
+def logout(request):
+    request.session.clear()
+    return redirect('/')
